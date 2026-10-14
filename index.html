@@ -1,0 +1,70 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Signal Terminal | Crypto market data with on-device AI summaries</title><meta name="description" content="Live public crypto market data from CoinGecko with charts and on-device LLM summaries. Educational only, not financial advice.">
+<style>
+:root{--bg:#050607;--p:#0c0f12;--l:#1d242b;--t:#d7e2ea;--m:#6f8291;--a:#ffb000;--up:#18e28a;--dn:#ff4d5e}
+*{box-sizing:border-box}body{margin:0;font:13.5px/1.45 "JetBrains Mono",ui-monospace,Menlo,monospace;background:var(--bg);color:var(--t)}
+.disc{background:#2a1d00;color:#ffd27a;border-bottom:1px solid #5a3f00;padding:7px 18px;font-size:12px;text-align:center}
+header{display:flex;align-items:center;gap:16px;padding:12px 18px;border-bottom:1px solid var(--l);flex-wrap:wrap}h1{margin:0;font-size:16px;color:var(--a);letter-spacing:.12em}
+#ticker{flex:1;overflow:hidden;white-space:nowrap;color:var(--m);mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent)}#ticker div{display:inline-block;animation:tk 60s linear infinite}@keyframes tk{to{transform:translateX(-50%)}}
+.up{color:var(--up)}.dn{color:var(--dn)}
+main{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:1px;background:var(--l);min-height:calc(100vh - 90px)}
+.pane{background:var(--p);padding:14px;min-width:0}h2{margin:0 0 10px;font-size:11px;letter-spacing:.14em;color:var(--m);font-weight:600;text-transform:uppercase}
+table{width:100%;border-collapse:collapse}th{color:var(--m);font-weight:500;text-align:right;font-size:11px;padding:4px}th:first-child,td:first-child{text-align:left}
+td{padding:6px 4px;text-align:right;border-top:1px solid #12171c}tr.row{cursor:pointer}tr.row:hover,tr.row[aria-selected=true]{background:#141a20}tr.row:focus-visible{outline:1px solid var(--a)}
+td img{width:16px;height:16px;vertical-align:-3px;margin-right:6px;border-radius:50%}
+.right{display:grid;grid-template-rows:auto auto 1fr;gap:1px;background:var(--l)}
+.big{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}.big .px{font-size:30px;font-weight:700}.ranges{margin-left:auto;display:flex;gap:4px}
+button{font:inherit;background:#141a20;color:var(--t);border:1px solid var(--l);padding:5px 10px;border-radius:6px;cursor:pointer}button[aria-pressed=true]{background:var(--a);color:#000;border-color:var(--a)}button.go{background:var(--a);color:#000;font-weight:700}button:disabled{opacity:.5}
+button:focus-visible{outline:2px solid #fff}
+canvas{width:100%;height:320px;display:block}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px}.stats div{border:1px solid var(--l);border-radius:8px;padding:8px}.stats b{display:block;font-size:15px;color:var(--t)}.stats span{color:var(--m);font-size:11px}
+#sum{white-space:pre-wrap;color:#e8d6a8;background:#0a0c0e;border:1px solid var(--l);border-radius:8px;padding:12px;min-height:110px;margin-top:10px}
+.st{color:var(--m);font-size:12px;margin-left:10px}.bar{height:3px;background:#141a20;margin-top:8px}.bar i{display:block;height:100%;width:0;background:var(--a)}
+footer{color:var(--m);font-size:11px;padding:10px 18px;border-top:1px solid var(--l)}footer a{color:var(--a)}
+@media(max-width:900px){main{grid-template-columns:1fr}}@media(prefers-reduced-motion:reduce){#ticker div{animation:none}}
+</style></head><body>
+<div class="disc" role="note">Educational demo only. Not financial advice. No trading, no accounts, no recommendations.</div>
+<header><h1>SIGNAL//TERMINAL</h1><div id="ticker" aria-hidden="true"><div id="tk">Loading market data...</div></div><span id="clock" style="color:var(--m)"></span></header>
+<main><section class="pane" aria-label="Top assets"><h2>Top 25 by market cap · USD</h2>
+<table><thead><tr><th scope="col">Asset</th><th scope="col">Price</th><th scope="col">24h</th><th scope="col">7d</th></tr></thead><tbody id="tb"><tr><td colspan="4">Loading...</td></tr></tbody></table></section>
+<div class="right"><section class="pane" aria-label="Chart"><div class="big"><span id="nm" style="font-size:16px">-</span><span class="px" id="px">-</span><span id="ch"></span>
+<div class="ranges" role="group" aria-label="Chart range"><button data-d="1">1D</button><button data-d="7">7D</button><button data-d="30" aria-pressed="true">30D</button><button data-d="90">90D</button><button data-d="365">1Y</button></div></div>
+<canvas id="cv" role="img" aria-label="Price chart"></canvas><div class="stats" id="stats"></div></section>
+<section class="pane" aria-label="AI summary"><h2>On-device AI market brief <span class="st" id="st">SmolLM2 360M via transformers.js, about 250 MB first run</span></h2>
+<button class="go" id="ai">Summarise selected asset</button><div class="bar" aria-hidden="true"><i id="pg"></i></div>
+<div id="sum" aria-live="polite">The model runs in your browser and only sees the computed statistics above. It describes what happened; it does not predict or advise.</div></section>
+</div></main>
+<footer>Data: <a href="https://www.coingecko.com/" rel="noopener">CoinGecko public API</a>, refreshes every 60s and may be rate limited. Built by Deji. Not financial advice.</footer>
+<script type="module">
+const $=id=>document.getElementById(id),API='https://api.coingecko.com/api/v3';let coins=[],sel=null,days=30,series=[],gen;
+const fmt=v=>v>=1?'$'+v.toLocaleString(undefined,{maximumFractionDigits:2}):'$'+v.toPrecision(4),pc=v=>v==null?'-':`<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`,big=v=>'$'+(v>=1e12?(v/1e12).toFixed(2)+'T':v>=1e9?(v/1e9).toFixed(2)+'B':(v/1e6).toFixed(1)+'M');
+async function j(u){const r=await fetch(u);if(!r.ok)throw new Error(r.status===429?'Rate limited by CoinGecko, retrying soon':'HTTP '+r.status);return r.json()}
+async function loadList(){try{coins=await j(`${API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=25&page=1&sparkline=false&price_change_percentage=24h,7d`);
+$('tb').innerHTML=coins.map((c,i)=>`<tr class="row" tabindex="0" data-i="${i}" aria-selected="${sel&&sel.id===c.id}"><td><img src="${c.image}" alt="">${c.symbol.toUpperCase()}</td><td>${fmt(c.current_price)}</td><td>${pc(c.price_change_percentage_24h_in_currency)}</td><td>${pc(c.price_change_percentage_7d_in_currency)}</td></tr>`).join('');
+const t=coins.map(c=>`${c.symbol.toUpperCase()} ${fmt(c.current_price)} ${pc(c.price_change_percentage_24h_in_currency)}`).join(' · ');$('tk').innerHTML=t+' · '+t;
+document.querySelectorAll('tr.row').forEach(r=>{const f=()=>pick(coins[r.dataset.i]);r.onclick=f;r.onkeydown=e=>e.key==='Enter'&&f()});if(!sel)pick(coins[0]);else{sel=coins.find(c=>c.id===sel.id)||sel;head()}}
+catch(e){$('tb').innerHTML=`<tr><td colspan=4>${e.message}</td></tr>`}}
+function head(){$('nm').textContent=sel.name+' ('+sel.symbol.toUpperCase()+')';$('px').textContent=fmt(sel.current_price);$('ch').innerHTML=pc(sel.price_change_percentage_24h_in_currency)+' 24h'}
+async function pick(c){sel=c;head();document.querySelectorAll('tr.row').forEach(r=>r.setAttribute('aria-selected',coins[r.dataset.i].id===c.id));
+try{const d=await j(`${API}/coins/${c.id}/market_chart?vs_currency=usd&days=${days}`);series=d.prices;draw();stats()}catch(e){series=[];draw(e.message)}}
+function stats(){const p=series.map(s=>s[1]);if(!p.length)return;const hi=Math.max(...p),lo=Math.min(...p),ch=(p.at(-1)/p[0]-1)*100,r=p.slice(1).map((v,i)=>Math.log(v/p[i])),m=r.reduce((a,b)=>a+b,0)/r.length,vol=Math.sqrt(r.reduce((a,b)=>a+(b-m)**2,0)/r.length)*100;
+let peak=p[0],dd=0;p.forEach(v=>{peak=Math.max(peak,v);dd=Math.min(dd,(v/peak-1)*100)});
+sel._s={range:days+' days',change:ch.toFixed(2)+'%',high:fmt(hi),low:fmt(lo),volatility:vol.toFixed(2)+'% per interval',maxDrawdown:dd.toFixed(2)+'%',marketCap:big(sel.market_cap),volume24h:big(sel.total_volume),rank:sel.market_cap_rank};
+$('stats').innerHTML=[['Range change',pc(ch)],['High',fmt(hi)],['Low',fmt(lo)],['Max drawdown',pc(dd)],['Market cap',big(sel.market_cap)],['24h volume',big(sel.total_volume)]].map(([a,b])=>`<div><span>${a}</span><b>${b}</b></div>`).join('')}
+function draw(err){const cv=$('cv'),R=cv.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=R.width*d;cv.height=R.height*d;const x=cv.getContext('2d');x.scale(d,d);const w=R.width,h=R.height,pl=8,pr=70,pt=10,pb=22;
+if(!series.length){x.fillStyle='#6f8291';x.fillText(err||'No data',20,40);return}const p=series.map(s=>s[1]),hi=Math.max(...p),lo=Math.min(...p),X=i=>pl+(w-pl-pr)*i/(p.length-1),Y=v=>pt+(h-pt-pb)*(1-(v-lo)/(hi-lo||1));
+x.strokeStyle='#161c22';x.fillStyle='#6f8291';x.font='11px monospace';for(let i=0;i<5;i++){const v=lo+(hi-lo)*i/4,y=Y(v);x.beginPath();x.moveTo(pl,y);x.lineTo(w-pr,y);x.stroke();x.fillText(fmt(v),w-pr+6,y+4)}
+const up=p.at(-1)>=p[0],col=up?'#18e28a':'#ff4d5e',g=x.createLinearGradient(0,pt,0,h);g.addColorStop(0,col+'55');g.addColorStop(1,col+'00');
+x.beginPath();p.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));x.lineTo(X(p.length-1),h-pb);x.lineTo(pl,h-pb);x.fillStyle=g;x.fill();
+x.beginPath();p.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));x.strokeStyle=col;x.lineWidth=1.8;x.stroke();
+x.fillStyle='#6f8291';[0,.5,1].forEach(f=>{const i=Math.round(f*(p.length-1)),t=new Date(series[i][0]);x.fillText(days<=1?t.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):t.toLocaleDateString(),Math.min(X(i),w-pr-70),h-6)})}
+document.querySelectorAll('.ranges button').forEach(b=>b.onclick=()=>{days=+b.dataset.d;document.querySelectorAll('.ranges button').forEach(o=>o.setAttribute('aria-pressed',o===b));pick(sel)});
+const dev=navigator.gpu?'webgpu':'wasm',files={};
+$('ai').onclick=async()=>{if(!sel?._s)return;$('ai').disabled=true;try{if(!gen){$('st').textContent='Loading model ('+dev.toUpperCase()+')...';const T=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.1');
+gen=await T.pipeline('text-generation','HuggingFaceTB/SmolLM2-360M-Instruct',{device:dev,dtype:dev==='webgpu'?'q4f16':'q4',progress_callback:p=>{if(p.status==='progress'&&p.total){files[p.file]=[p.loaded,p.total];const v=Object.values(files);$('pg').style.width=v.reduce((a,b)=>a+b[0],0)/v.reduce((a,b)=>a+b[1],0)*100+'%'}}});$('pg').style.width='100%'}
+$('st').textContent='Writing brief...';$('sum').textContent='';
+const facts=Object.entries(sel._s).map(([k,v])=>`${k}: ${v}`).join('\n');
+const o=await gen([{role:'system',content:'You are a neutral market data reporter. Describe recent price behaviour using only the facts given, in 3 or 4 sentences. Never give advice, predictions, or recommendations to buy or sell.'},{role:'user',content:`Asset: ${sel.name} (${sel.symbol.toUpperCase()})\nCurrent price: ${fmt(sel.current_price)}\n${facts}\nWrite the brief.`}],{max_new_tokens:150,do_sample:false,repetition_penalty:1.1});
+$('sum').textContent=o[0].generated_text.at(-1).content.trim()+'\n\nGenerated on your device from the statistics above. Not financial advice.';$('st').textContent='Done.'}catch(e){$('st').textContent='Error: '+e.message}$('ai').disabled=false};
+setInterval(()=>$('clock').textContent=new Date().toLocaleTimeString(),1000);addEventListener('resize',()=>draw());loadList();setInterval(loadList,60000);
+</script></body></html>
